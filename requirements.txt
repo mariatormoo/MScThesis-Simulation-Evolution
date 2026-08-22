@@ -1,0 +1,11 @@
+streamlit>=1.36
+pandas>=2.0
+numpy>=1.24
+matplotlib
+plotly>=5.13
+scikit-learn
+statsmodels>=0.14
+prophet>=1.1 ; platform_system != "Windows"
+xgboost>=2.0
+openai>=1.40
+yfinance>=0.2
