@@ -27,6 +27,7 @@ def run_forecasting_module():
     # ---------------------
     data_source = st.radio("Select Data Source", ["Yahoo Finance (ticker)", "Upload CSV"], horizontal=True)
     df = None
+    ticker = "Upload Series" # Valor por defecto para la rama CSV
 
     # Yahoo Finance Data
     if data_source == "Yahoo Finance (ticker)":
@@ -155,7 +156,7 @@ def run_forecasting_module():
                     train_prophet['ds'] = pd.to_datetime(train_prophet['ds'], errors='coerce')
                     train_prophet['y'] = pd.to_numeric(train_prophet['y'], errors='coerce')
                     train_prophet.head()
-                    train_prophet = train_prophet.dropna(susbet=['ds', 'y']) # drop rows where couldn't convert
+                    train_prophet = train_prophet.dropna(subset=['ds', 'y']) # drop rows where couldn't convert
                     train_prophet = train_prophet.sort_values('ds').reset_index(drop=True)
 
                    

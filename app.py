@@ -250,38 +250,30 @@ def page_home() -> None:
 
 # Financial Forecasting Page
 def page_forecasting() -> None:
-    from Modules.module1_financial_forecasting.forecasting_app import run_forecasting_module
-    run_forecasting_module()
+    def runner():
+        from Modules.module1_financial_forecasting.forecasting_app import run_forecasting_module
+        run_forecasting_module()
+
+    _safe_run("Financial Forecasting", runner)
     
-    #Lazy Imports 
-    #def runner():
-    #    from Modules.module1_financial_forecasting.forecasting_app import run_forecasting_module
-    #    run_forecasting_module()
-    #_safe_run("Financial Forecasting", runner)
 
 # Scenario Planning Page
 def page_scenario() -> None:
-    from Modules.module2_scenario_planning.scenario_app import run_scenario_module
-    run_scenario_module()
-
-    #Lazy Imports
-    #def runner():
-    #    from Modules.module2_scenario_planning.scenario_app import run_scenario_module
-    #    run_scenario_module()
-    #_safe_run("Scenario Planning", runner)
+    def runner():
+        from Modules.module2_scenario_planning.scenario_app import run_scenario_module
+        run_scenario_module()
+    
+    _safe_run("Scenario Planning", runner)
 
 
 # Generative AI Decision Reports Page
 def page_ai_reports() -> None:
-    
-    from Modules.module3_generative_AI.genai_reports import run_genai_module
-    run_genai_module()
- 
-    # Lazy Imports
-    # def runner():
-    #    from Modules.module3_generative_AI.genai_reports import run_genai_module
-    #    run_genai_module()
-    #_safe_run("AI Decision Reports", runner)
+    def runner():
+        from Modules.module3_generative_AI.genai_reports import run_genai_module
+        run_genai_module()
+
+    _safe_run("Generative AI Decision Reports", runner)
+
 
 
 # ----------------------------

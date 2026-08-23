@@ -76,7 +76,7 @@ def _read_upload(file) -> str:
 
 
 
-def _get_openai_client():
+def _get_openai_client(api_key: str):
     """
     Try to import the new (>=1.0) or legacy OpenAI SDK.
     Always return a tuple (mode, client) where mode is "new", "legacy" or None.
@@ -85,8 +85,9 @@ def _get_openai_client():
     try:
         # new SDK Style
         from openai import OpenAI
-        client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY") or (st.secrets.get("OPENAI_API_KEY") if "OPENAI_API_KEY" in st.secrets else None))
+        client = OpenAI(api_key=api_key)
         return ("new", client)
+    
     except Exception:
         try:
             # legacy SDK Style
@@ -183,6 +184,10 @@ TEMPLATES = {
 
 }
 
+# Helper -> 1.4 tokens/word approximation
+def length_words_to_tokens(words: int) -> int:
+    return int(words * 1.4)
+
 
 def _call_openai(prompt: str) -> str:
     """
@@ -201,6 +206,8 @@ def _call_openai(prompt: str) -> str:
             "\nIntroduce an OpenAI API Key to enable real generation.\n"
         )
 
+    mode, client = _get_openai_client(api_key)
+
     try:
         # Call the appropriate OpenAI API based on the SDK version
         if mode == "new" and client:
@@ -212,7 +219,8 @@ def _call_openai(prompt: str) -> str:
                         {"role": "system", "content": "You are an expert CFO assistant. Be concise, professional and actionable."},
                         {"role": "user", "content": prompt},
                     ],
-                    temperature = 0.3, # Lower temperature for more focused responses
+                    temperature=0.3, # Lower temperature for more focused responses
+                    max_tokens=min(4000, int(length_words_to_tokens(lendth))),
                 )
                 return response.choices[0].message.content.strip()
             
@@ -320,6 +328,10 @@ def _local_suggestion_engine(prompt: str) -> str:
     
     if any(word in prompt for word in ["board", "cfo", "director", "uncertain", "executive"]):
        return "Board-framing ideas:\n- " + "\n- ".join(SUGGESTION_SEEDS["Board framing"])
+
+    # Fallback
+    all_seeds = sum(SUGGESTION_SEEDS.values(), [])
+    return "General ideas:\n- " + "\n- ".join(all_seeds[:4])
     
 
 
@@ -394,7 +406,7 @@ def run_genai_module():
             ["Executive Summary", "KPIs", "Risks", "Opportunities", "Scenarios", "Next Actions"],
             default=["Executive Summary", "KPIs", "Risks", "Opportunities", "Next Actions"],
         )
-    length = st.slider("Length (in words)", min_value=100, value=3000, max_value=15000, step=50, help="Approximate target length in words.")
+    length = st.slider("Length (in words)", min_value=100, value=600, max_value=2500, step=50, help="Approximate target length in words.")
     
     # Shareable link helper
     if st.button("🔗 Update URL with settings"):
@@ -444,13 +456,20 @@ def run_genai_module():
 
     else:
         st.info("Using uploaded CSV as KPI table (you can still edit below).")
-        metrics_df = st.data_editor(context_file, num_rows='dynamic', use_container_width=True)
+        metrics_df = st.data_editor(metrics_df, num_rows='dynamic', use_container_width=True)
 
 
 
     # Generate Report
 
     if st.button("🚀 Generate Document", type="primary"):
+        kpi_summary = ""
+        if isinstance(metrics_df, pd.DataFrame) and not metrics_df.empty:
+            kpi_summary = "\n".join(
+                f"- {row.get('Metric','')}: {row.get('Value','')} {row.get('Unit', '')}"
+                for _, row in metrics_df.iterrows()
+            )
+
         prompt = TEMPLATES[doc_type].format(
             metrics=metrics, 
             horizon=horizon, 
@@ -465,7 +484,7 @@ def run_genai_module():
         with st.status("Generating report...", expanded=False) as s:
             s.update(label="Calling GPT...", state='running')
             try:
-                report = _call_openai(prompt)
+                report = _call_openai(prompt, api_key)
                 if api_key:
                     s.update(label="Formatting...", state='running')
                     s.update(label="Successfully Generated! (click to access report)", state='complete')

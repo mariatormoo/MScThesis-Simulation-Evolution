@@ -250,19 +250,18 @@ def forecast_xgboost(model_tuple, steps: int, history: np.ndarray):
         return None
     
     booster, max_lag = model_tuple
-    history_list = history.copy().tolist()
+    #history_list = history.copy().tolist()
+    history_list = history.flatten().tolist() # Flatten 2D array
     predictions = []
 
     for i in range(steps):
         X = np.array(history_list[-max_lag:]).reshape(1, -1)
-        # Rename variable pls!!
         dtest = xgb.DMatrix(X)
         y_pred = float(booster.predict(dtest))
         predictions.append(y_pred)
-        history_list.apend(y_pred)
+        history_list.append(y_pred)
 
     return np.array(predictions)
-
 
 
 
