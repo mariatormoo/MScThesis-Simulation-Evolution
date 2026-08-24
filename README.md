@@ -9,7 +9,7 @@ transforming the role of the CFO"* (Esade, 2025).
 | Module | Purpose |
 |---|---|
 | 📈 Financial Forecasting | Compares ARIMA, Holt-Winters, Prophet and XGBoost against a manual CFO baseline, with a 90% prediction interval on the best-performing model. |
-| 🧮 Scenario Planning | Stress-tests inflation, sales and interest-rate assumptions with a waterfall chart, tornado sensitivity, Monte Carlo simulation, and a real FCF/NPV bridge. |
+| 🧮 Scenario Planning | Stress-tests inflation, sales and interest-rate assumptions with a waterfall chart, tornado sensitivity, Monte Carlo simulation, a real FCF/NPV bridge, and **covenant compliance checks** (interest coverage, leverage) against bank-style thresholds. |
 | 📝 Generative AI Decision Reports | Drafts board-ready reports from your KPIs, with mandatory source citation on every quantitative claim. |
 
 The three modules are connected: run a forecast or a scenario, and the report

@@ -155,7 +155,10 @@ def run_scenario_module():
 
 
     # Multi-Year Projection with Compounding
-    df = pd.DataFrame(index=range(1, years + 1), columns=["Sales", "Costs", "Interest", "Profit", "FreeCF", "Discount Factor", "PV of FCF"])
+    df = pd.DataFrame(index=range(1, years + 1), columns=[
+        "Sales", "Costs", "Interest", "Profit", "FreeCF", "Discount Factor", "PV of FCF",
+        "EBITDA", "Interest Coverage", "Leverage (Debt/EBITDA)", "Covenant Status",
+    ])
 
     sales, costs, interest = base_sales, base_costs, base_interest
 
@@ -163,6 +166,21 @@ def run_scenario_module():
         capex_pct = st.slider("CapEx (% of Sales)", 0.0, 30.0, 8.0, step=0.5, help="Capital Expenditures as % of Sales.")
         da_pct = st.slider("D&A (% of sales)", 0.0, 20.0, 5.0, step=0.5, help="Depreciation & Amortization as % of Sales.")
         nwc_change_pct = st.number_input("Change in Net Working Capital (% of sales)", -10.0, 10.0, 2.0, step=0.5, help="Change in NWC for FCF calculation.")
+
+    with st.expander("🏦 Covenant compliance (debt covenants)", expanded=False):
+        st.caption(
+            "A scenario can be profitable and still breach a lender's covenants. "
+            "Set your thresholds and each projected year is checked against them — "
+            "the kind of check most 'AI for CFOs' demos skip entirely."
+        )
+        outstanding_debt = st.number_input("Outstanding Debt ($)", min_value=0.0, value=250000.0, step=5000.0, format="%.0f",
+                                            help="Used to compute the leverage ratio (Debt / EBITDA).")
+        min_interest_coverage = st.number_input("Minimum Interest Coverage Ratio (EBITDA / Interest)", min_value=0.0, value=2.0, step=0.1,
+                                                 help="Typical bank covenant: EBITDA must cover interest expense by this multiple.")
+        max_leverage = st.number_input("Maximum Leverage (Debt / EBITDA)", min_value=0.0, value=3.5, step=0.1,
+                                        help="Typical bank covenant: debt must not exceed this multiple of EBITDA.")
+
+    covenant_breach_years: list[int] = []
 
     for year in range(1, years + 1):
         sales = sales * (1 + sales_change / 100)
@@ -174,10 +192,36 @@ def run_scenario_module():
         d_and_a = sales * (da_pct / 100)
         nwc_change = sales * (nwc_change_pct / 100)
         free_cf = profit + d_and_a - capex - nwc_change
-        # CHECK FORMULAS FOR FCF AND NPV
+
+        # EBITDA add-back: profit already has interest and D&A subtracted, so add them back.
+        ebitda = profit + interest + d_and_a
+        interest_coverage = (ebitda / interest) if interest > 0 else float("inf")
+        leverage_ratio = (outstanding_debt / ebitda) if ebitda > 0 else float("inf")
+
+        breaches = []
+        if interest_coverage < min_interest_coverage:
+            breaches.append("interest coverage")
+        if leverage_ratio > max_leverage:
+            breaches.append("leverage")
+        covenant_status = "🔴 Breach: " + ", ".join(breaches) if breaches else "✅ Compliant"
+        if breaches:
+            covenant_breach_years.append(year)
+
         df.loc[year, ["Sales", "Costs", "Interest", "Profit", "FreeCF"]] = [sales, costs, interest, profit, free_cf]
         df.loc[year, "Discount Factor"] = 1 / ((1 + discount_rate / 100) ** year) if discount_rate > 0 else 1.0
         df.loc[year, "PV of FCF"] = df.loc[year, "FreeCF"] * df.loc[year, "Discount Factor"]
+        df.loc[year, "EBITDA"] = ebitda
+        df.loc[year, "Interest Coverage"] = interest_coverage
+        df.loc[year, "Leverage (Debt/EBITDA)"] = leverage_ratio
+        df.loc[year, "Covenant Status"] = covenant_status
+
+    if covenant_breach_years:
+        st.error(
+            f"🔴 Covenant breach projected in year(s) {covenant_breach_years} under these assumptions — "
+            "this scenario would likely require lender waiver or renegotiation."
+        )
+    else:
+        st.success("✅ No covenant breaches projected across the horizon under these assumptions.")
 
     # Projections
     st.subheader("Projection Table")
@@ -189,7 +233,10 @@ def run_scenario_module():
         "Profit": "${:,.0f}",
         "FreeCF": "${:,.0f}",
         "Discount Factor": "{:.3f}",
-        "PV of FCF": "${:,.0f}"
+        "PV of FCF": "${:,.0f}",
+        "EBITDA": "${:,.0f}",
+        "Interest Coverage": "{:.2f}x",
+        "Leverage (Debt/EBITDA)": "{:.2f}x",
     })
     st.dataframe(styled_df)
 
@@ -252,10 +299,14 @@ def run_scenario_module():
             profit=float(profit), margin=float(margin), npv=float(df['PV of FCF'].sum()),
             years=int(years), inflation=float(inflation), sales_change=float(sales_change),
             interest_rate=float(interest_rate), loss_probability=loss_probability,
+            covenant_breach_years=covenant_breach_years,
         )
         log_event(
             module="scenario", action="generated_scenario",
             inputs={"inflation": inflation, "sales_change": sales_change, "interest_rate": interest_rate, "years": years},
-            output_summary=f"Profit ${profit:,.0f} (margin {margin:.1f}%), loss probability {loss_probability:.1%}",
+            output_summary=(
+                f"Profit ${profit:,.0f} (margin {margin:.1f}%), loss probability {loss_probability:.1%}, "
+                f"covenant breaches in years {covenant_breach_years or 'none'}"
+            ),
         )
 

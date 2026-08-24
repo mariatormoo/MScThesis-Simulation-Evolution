@@ -25,7 +25,26 @@ avisos críticos (F821/F401), y pasa los 23 tests de `pytest`.
 - **Grounding/citación**: cada informe generado exige citar el campo de origen de cada cifra.
 - **Traza de auditoría** (`Modules/shared/audit_log.py`): cada acción de IA queda registrada, visible en la barra lateral.
 - **"⚡ Analyze & Advise"**: botón de un clic en la home que encadena forecast → escenario pesimista → contexto listo para el informe.
-- (Las bandas de probabilidad quedan como siguiente paso — ver más abajo.)
+- **Bandas de probabilidad**: intervalo del 90% sobre el mejor modelo (nativo en Prophet, bootstrap sobre residuos para el resto) — cierra la brecha con la promesa de "probabilistic AI modules" del abstract del TFM.
+
+## Ronda final
+- `_safe_run` ya no envuelve la página entera en `st.status(...)` — eso colapsaba en cada rerun (cada clic/slider), dando la sensación de que "la página se cierra sola" en Scenario Planning y GenAI Reports.
+- Añadido `README.md` con quickstart, comandos de desarrollo y notas de diseño.
+- Verificación final: compila, `ruff check .` sin avisos (0 F821/F401), 23/23 tests, arranque real confirmado con `streamlit run`.
+
+## Fix post-entrega #2 — mismo bug, otro punto de impacto
+- El fix anterior arreglaba `bootstrap_interval` por dentro, pero `best_preds` en bruto (todavía 2D en algunos entornos) se usaba directamente para construir `band_df` con `pd.DataFrame(...)`, que pandas rechaza con "Per-column arrays must each be 1-dimensional". Fix definitivo: normalización a 1D de **todos** los resultados de modelos justo después de calcularlos (`forecasting_app.py`), en un único punto, en vez de parchear cada sitio donde se usan después. De paso, corregido un `import numpy as np` que faltaba en ese archivo (detectado por `ruff` antes de empaquetar).
+- `bootstrap_interval` en `forecasting_models.py`: cuando las predicciones del mejor modelo llegan con forma `(n, 1)` (vector columna) en vez de `(n,)` (según la versión de statsmodels/xgboost del entorno), la resta `y_true - y_pred` hacía *broadcasting* de NumPy y producía sin querer una matriz `(n, n)`, reventando la asignación posterior con `ValueError: could not broadcast...`. Fix: `.ravel()` en las tres entradas al inicio de la función, forzando 1D siempre. Añadidos 4 tests de regresión (`TestBootstrapInterval`), incluido el caso exacto que reportaste.
+Nueva funcionalidad, no una mejora de las cinco anteriores: Scenario Planning
+ahora calcula EBITDA, cobertura de intereses (EBITDA/Interest) y apalancamiento
+(Deuda/EBITDA) año a año, con semáforo de cumplimiento frente a los covenants
+típicos de un préstamo bancario. Un escenario puede ser rentable y aun así
+incumplir un covenant — algo que ningún prototipo genérico de "IA para CFOs"
+comprueba. El resultado se propaga vía `state_bridge` hasta el generador de
+informes de IA, que ahora señala explícitamente cualquier incumplimiento
+proyectado. Es la funcionalidad que conecta el prototipo directamente con la
+combinación de finanzas + regulación + IA del perfil detrás del proyecto,
+no una feature de IA genérica más.
 
 ## Herramientas de calidad añadidas
 - `tests/test_forecasting_models.py` — 23 tests con `pytest`.
@@ -33,6 +52,5 @@ avisos críticos (F821/F401), y pasa los 23 tests de `pytest`.
 - `.pre-commit-config.yaml` — ejecuta `ruff` (F821/F401/F841) antes de cada commit.
 
 ## Pendiente, no incluido en esta consolidación
-- Bandas de probabilidad del 90% en el módulo de Forecasting (estaban en el zip anterior del Bloque 2; no se han vuelto a cablear en esta versión — avisa si las quieres de vuelta).
 - Los 3 `F841` menores en `genai_reports.py` (`base_hint`, `init_length`, `context_text`) — variables calculadas y no usadas, cosmético.
 - Decidir si archivar `ai_reporting_app.py` si todavía existe en tu repo (módulo huérfano, no lo usa `app.py`).

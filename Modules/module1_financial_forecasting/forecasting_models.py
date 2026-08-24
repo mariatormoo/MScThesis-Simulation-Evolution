@@ -280,9 +280,10 @@ def bootstrap_interval(y_true_holdout: np.ndarray, y_pred_holdout: np.ndarray,
     An honest, lightweight approximation — not a substitute for a proper
     probabilistic model.
     """
-    y_true_holdout = np.asarray(y_true_holdout, dtype=float)
-    y_pred_holdout = np.asarray(y_pred_holdout, dtype=float)
-    point_forecast = np.asarray(point_forecast, dtype=float)
+    y_true_holdout = np.asarray(y_true_holdout, dtype=float).ravel()  # FIX: force 1D — some models can
+    y_pred_holdout = np.asarray(y_pred_holdout, dtype=float).ravel()  # return column-vector shaped (n,1)
+    point_forecast = np.asarray(point_forecast, dtype=float).ravel()  # predictions, which broke via
+                                                                        # NumPy broadcasting into an (n,n) matrix.
 
     if len(y_true_holdout) == 0 or len(y_pred_holdout) != len(y_true_holdout):
         # Not enough info to estimate residual spread — flat +/-5% fallback, clearly approximate.

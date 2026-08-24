@@ -3,6 +3,7 @@ from __future__ import annotations
 
 # Import necessary libraries
 import pandas as pd
+import numpy as np
 import streamlit as st
 #import altair as alt
 from . import forecasting_models as fm
@@ -191,7 +192,16 @@ def run_forecasting_module():
         else:
             cfo_forecast = fm.manual_cfo_naive_last_value(train, steps)
         results['CFO Manual'] = cfo_forecast
-                    
+
+    # Normalize every model's output to a flat 1D array. Some model/library
+    # version combinations (statsmodels, xgboost) can return column-vector
+    # shaped (n, 1) predictions instead of (n,) — which then breaks pandas
+    # DataFrame construction and NumPy broadcasting downstream in confusing,
+    # hard-to-trace ways. Fixing it once here, right after collection, beats
+    # patching every place these arrays get used later.
+    for _model_name in list(results.keys()):
+        if results[_model_name] is not None:
+            results[_model_name] = np.asarray(results[_model_name]).ravel()
 
     # --------------
     # Accuracy Table
@@ -245,15 +255,60 @@ def run_forecasting_module():
                     lower = forecast['yhat_lower'].tail(len(best_preds)).values
                     upper = forecast['yhat_upper'].tail(len(best_preds)).values
                 except Exception:
-                    lower, upper = fm.bootstrap_interval(test['y'].values, best_preds, best_preds)
+                    lower, upper = fm.bootstrap_interval(
+                        test['y'].values, 
+                        best_preds, 
+                        best_preds
+                    )
             else:
-                lower, upper = fm.bootstrap_interval(test['y'].values, best_preds, best_preds)
+                lower, upper = fm.bootstrap_interval(
+                    test['y'].values, 
+                    best_preds, 
+                    best_preds
+                )
+
+            # ------------------------------------------------------------
+            # Normalize prediction interval data before creating DataFrame
+            # ------------------------------------------------------------
+
+            ds_values = np.asarray(test["ds"]).reshape(-1)
+            actual_values = np.asarray(test["y"]).reshape(-1)
+            forecast_values = np.asarray(best_preds).reshape(-1)
+            lower_values = np.asarray(lower).reshape(-1)
+            upper_values = np.asarray(upper).reshape(-1)
+
+            # Make sure all arrays have the same length
+            n = len(test)
+
+            if not (
+                len(ds_values) == n
+                and len(actual_values) == n
+                and len(forecast_values) == n
+                and len(lower_values) == n
+                and len(upper_values) == n
+            ):
+                st.error(
+                    f"Prediction interval error: different array lengths. "
+                    f"test={n}, "
+                    f"ds={len(ds_values)}, "
+                    f"actual={len(actual_values)}, "
+                    f"forecast={len(forecast_values)}, "
+                    f"lower={len(lower_values)}, "
+                    f"upper={len(upper_values)}"
+                )
+                st.stop()
 
             import plotly.graph_objs as go
+
             band_df = pd.DataFrame({
-                "ds": test['ds'].values, "actual": test['y'].values,
-                "forecast": best_preds, "lower_90": lower, "upper_90": upper,
+                "ds": ds_values,
+                "actual": actual_values,
+                "forecast": forecast_values,
+                "lower_90": lower_values,
+                "upper_90": upper_values,
             })
+
+
             band_fig = go.Figure()
             band_fig.add_trace(go.Scatter(x=band_df["ds"], y=band_df["upper_90"], line=dict(width=0), showlegend=False, hoverinfo="skip"))
             band_fig.add_trace(go.Scatter(x=band_df["ds"], y=band_df["lower_90"], line=dict(width=0), fill='tonexty',

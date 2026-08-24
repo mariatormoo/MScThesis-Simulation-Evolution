@@ -27,7 +27,8 @@ def get_last_forecast() -> Optional[Dict[str, Any]]:
 
 def set_last_scenario(profit: float, margin: float, npv: float, years: int,
                        inflation: float, sales_change: float, interest_rate: float,
-                       loss_probability: Optional[float] = None) -> None:
+                       loss_probability: Optional[float] = None,
+                       covenant_breach_years: Optional[list] = None) -> None:
     st.session_state[KEY_LAST_SCENARIO] = {
         "profit": profit,
         "margin": margin,
@@ -37,6 +38,7 @@ def set_last_scenario(profit: float, margin: float, npv: float, years: int,
         "sales_change": sales_change,
         "interest_rate": interest_rate,
         "loss_probability": loss_probability,
+        "covenant_breach_years": covenant_breach_years or [],
     }
 
 
@@ -60,9 +62,11 @@ def as_metrics_text() -> str:
     sc = get_last_scenario()
     if sc:
         lp = f", loss probability {sc['loss_probability']:.1%}" if sc.get("loss_probability") is not None else ""
+        breaches = sc.get("covenant_breach_years") or []
+        cov = f" COVENANT BREACH projected in year(s) {breaches} — flag this explicitly." if breaches else " No covenant breaches projected."
         lines.append(
             f"Scenario ({sc['years']}y): inflation {sc['inflation']:.1f}%, sales Δ {sc['sales_change']:.1f}%, "
             f"rate {sc['interest_rate']:.1f}% -> profit ${sc['profit']:,.0f} (margin {sc['margin']:.1f}%), "
-            f"NPV ${sc['npv']:,.0f}{lp}."
+            f"NPV ${sc['npv']:,.0f}{lp}.{cov}"
         )
     return "\n".join(lines)
