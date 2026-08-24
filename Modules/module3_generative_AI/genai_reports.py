@@ -3,13 +3,13 @@ from __future__ import annotations
 
 # Import Libraries
 import os
-import json
 #import openai
-import textwrap
 import pandas as pd
 import streamlit as st
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import Optional
+from ..shared import state_bridge
+from ..shared.audit_log import log_event
 
 # API Helper
 def _get_api_key():
@@ -367,6 +367,16 @@ def run_genai_module():
     st.header("🧾 Generative AI: Decision Report Generator")
     st.caption("Generate CFO-style narrative reports with GPT based on your data.")
 
+    if state_bridge.has_any_results():
+        bridged_text = state_bridge.as_metrics_text()
+        with st.container(border=True):
+            st.markdown("🔗 **Results available from other modules**")
+            st.code(bridged_text, language=None)
+            use_bridge = st.button("📊 Use these results as report context")
+    else:
+        bridged_text = ""
+        use_bridge = False
+
     api_key = _get_api_key()
 
     # Get initial values from URL query params
@@ -394,6 +404,7 @@ def run_genai_module():
         audience = st.text_input("Audience", value=init_aud)
     horizon = st.slider("Scenario Horizon (months)", min_value=1, max_value=36, value=6, step=1)
     metrics = st.text_area("Key Financial Metrics (comma-separated)", 
+                           value=(bridged_text if use_bridge else ""),
                            height=180,
                            placeholder="Revenue YoY 22%, Gross Margin 41%, NRR 114%, CAC Payback 9.2 months, Net Debt 5m"
                            )
@@ -467,7 +478,13 @@ def run_genai_module():
                 for _, row in metrics_df.iterrows()
             )
 
-        combined_metrics = f"{metrics}\nStructured KPIs:\n{kpi_summary}" if kpi_summary else metrics
+        combined_metrics = f"{metrics}\n\nStructured KPIs:\n{kpi_summary}" if kpi_summary else metrics
+        grounding_instruction = (
+            "\n\nGROUNDING RULE (mandatory): every quantitative claim must end with a bracketed "
+            "citation naming its source field, e.g. 'revenue grew 22% [Revenue YoY]'. If a figure "
+            "isn't in the provided metrics, say it's not available instead of inventing it."
+        )
+        combined_metrics = combined_metrics + grounding_instruction
         prompt = TEMPLATES[doc_type].format(
             metrics=combined_metrics, 
             horizon=horizon, 
@@ -483,6 +500,12 @@ def run_genai_module():
             s.update(label="Calling GPT...", state='running')
             try:
                 report = _call_openai(prompt, api_key, length)
+                log_event(
+                    module="genai_reports", action="generated_report",
+                    inputs={"doc_type": doc_type, "audience": audience, "tone": tone, "length_words": length,
+                            "used_bridged_results": bool(use_bridge)},
+                    output_summary=f"{doc_type} generated for {audience} ({length} words target)",
+                )
                 if api_key:
                     s.update(label="Formatting...", state='running')
                     s.update(label="Successfully Generated! (click to access report)", state='complete')

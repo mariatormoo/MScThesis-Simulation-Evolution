@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objs as go
 import streamlit as st
+from ..shared import state_bridge
+from ..shared.audit_log import log_event
 
 
 # =========================
@@ -59,16 +61,17 @@ def _tornado_sensitivity(base_sales: float, base_costs: float, base_interest: fl
 
     names, lows, highs = [], [], []
     for name, cur, fn in drivers:
-        p_low = fn(cur - 10)
-        p_high = fn(cur + 10)
+        delta = abs(cur) * 0.10 or 1.0  # 10% relative shock; fallback if driver is ~0
+        p_low = fn(cur - delta)
+        p_high = fn(cur + delta)
         names.append(name)
         lows.append(p_low - base_profit)
         highs.append(p_high - base_profit)
 
 
     fig = go.Figure()
-    fig.add_bar(y=names, x=lows, orientation="h", name="-10%")
-    fig.add_bar(y=names, x=highs, orientation="h", name="+10%")
+    fig.add_bar(y=names, x=lows, orientation="h", name="-10% (relative)")
+    fig.add_bar(y=names, x=highs, orientation="h", name="+10% (relative)")
 
     # Plot Big Title
     #st.subheader("Tornado Sensitivity Analysis (±10%)")
@@ -242,6 +245,17 @@ def run_scenario_module():
         - Adjusted Profit: ${profit:,.0f} | Margin: {margin:.1f}%
         - NPV of FCF over {years} years @ {discount_rate:.1f}%: ${df['PV of FCF'].sum():,.0f} 
         """
-        st.download_button("📥 Download Executive Summary (MD)", summary_md, "scenario_executive_summary.md")    
-        # Consider only doing MC things for the summary      
+        st.download_button("📥 Download Executive Summary (MD)", summary_md, "scenario_executive_summary.md")
+
+        loss_probability = float((sim_profits < 0).mean())
+        state_bridge.set_last_scenario(
+            profit=float(profit), margin=float(margin), npv=float(df['PV of FCF'].sum()),
+            years=int(years), inflation=float(inflation), sales_change=float(sales_change),
+            interest_rate=float(interest_rate), loss_probability=loss_probability,
+        )
+        log_event(
+            module="scenario", action="generated_scenario",
+            inputs={"inflation": inflation, "sales_change": sales_change, "interest_rate": interest_rate, "years": years},
+            output_summary=f"Profit ${profit:,.0f} (margin {margin:.1f}%), loss probability {loss_probability:.1%}",
+        )
 

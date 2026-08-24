@@ -3,10 +3,11 @@ from __future__ import annotations
 
 # Import necessary libraries
 import pandas as pd
-import numpy as np
 import streamlit as st
 #import altair as alt
 from . import forecasting_models as fm
+from ..shared import state_bridge
+from ..shared.audit_log import log_event
 
 
 # Function to run the forecasting module
@@ -211,7 +212,20 @@ def run_forecasting_module():
         
         if metrics:
             st.subheader("📊 Model Accuracy on Holdout Set")
-            st.dataframe(pd.DataFrame(metrics).sort_values('MAPE (%)'))
+            metrics_df_display = pd.DataFrame(metrics).sort_values('MAPE (%)')
+            st.dataframe(metrics_df_display)
+
+            best_row = metrics_df_display.iloc[0]
+            state_bridge.set_last_forecast(
+                ticker=ticker, best_model=str(best_row['Model']),
+                mape=float(best_row['MAPE (%)']), rmse=float(best_row['RMSE']),
+                horizon_months=horizon_months,
+            )
+            log_event(
+                module="forecasting", action="generated_forecast",
+                inputs={"ticker": ticker, "models_run": model_choice, "horizon_months": horizon_months},
+                output_summary=f"Best model: {best_row['Model']} (MAPE {best_row['MAPE (%)']:.2f}%)",
+            )
 
 
     # ----------------------------

@@ -1,10 +1,11 @@
 # Import Libraries
 from __future__ import annotations
 
-import textwrap
-from typing import Optional
-import importlib
+import numpy as np
+import pandas as pd
 import streamlit as st
+from Modules.shared import state_bridge
+from Modules.shared.audit_log import log_event, read_log
 
 # MAIN ENTRY - Streamlit App for CFO Simulation Tool.
 # Run with: streamlit run app.py
@@ -140,6 +141,15 @@ with st.sidebar:
         st.toast("State cleared. Reloading…")
         st.rerun()
 
+    with st.sidebar.expander("🧾 Audit trail (last actions)"):
+        records = read_log(limit=10)
+        if not records:
+            st.caption("No AI-assisted actions logged yet this session.")
+        for r in records:
+            mark = "✅" if r.get("human_approved") else "—"
+            st.caption(f"{mark} `{r['module']}` · {r['action']} · {r['timestamp'][:19]}")
+            st.caption(r["output_summary"])
+
     # Add a footer
     st.sidebar.markdown("---")
     st.sidebar.markdown("Developed by [María Tormo Nieto](https://www.linkedin.com/in/maría-tormo-nieto) | Contact: maria.tormo@alumni.esade.edu") 
@@ -164,8 +174,64 @@ def _safe_run(module_name: str, runner: callable) -> None:
 # PAGES
 # ----------------------------
 
+def _run_analyze_and_advise() -> None:
+    from Modules.module1_financial_forecasting import forecasting_models as fm
+    with st.status("Running Analyze & Advise…", expanded=True) as s:
+        s.write("Fetching data…")
+        df = fm.load_data_from_yahoo("AAPL", period="2y", interval="1d")
+        if df is None or df.empty:
+            rng = np.random.default_rng(7)
+            dates = pd.date_range(end=pd.Timestamp.today(), periods=500, freq="D")
+            values = 100 + np.cumsum(rng.normal(0.05, 1.2, size=len(dates)))
+            df = pd.DataFrame({"ds": dates, "y": values})
+            ticker_used = "Synthetic demo series"
+        else:
+            ticker_used = "AAPL"
+
+        train, test = fm.train_test_split(df, test_size=30)
+        s.write("Training Holt-Winters model…")
+        hw_model = fm.fit_holtwinters(train, seasonal=None, seasonal_periods=None)
+        preds = fm.forecast_holtwinters(hw_model, steps=len(test))
+        mape_val = fm.mape(test["y"].values, preds)
+
+        state_bridge.set_last_forecast(ticker=ticker_used, best_model="Holt-Winters", mape=mape_val,
+                                        rmse=fm.rmse(test["y"].values, preds), horizon_months=6)
+
+        s.write("Applying pessimistic scenario…")
+        base_sales, base_costs, base_interest = 100_000.0, 60_000.0, 2_000.0
+        inflation, sales_change, interest_rate = 6.0, -15.0, 5.0
+        adj_sales = base_sales * (1 + sales_change / 100)
+        adj_costs = base_costs * (1 + inflation / 100)
+        adj_interest = base_interest * (1 + interest_rate / 100)
+        profit = adj_sales - adj_costs - adj_interest
+        margin = (profit / adj_sales * 100) if adj_sales > 0 else 0.0
+        rng = np.random.default_rng(42)
+        sim_profits = adj_sales - adj_costs + rng.normal(0, abs(profit) * 0.1 or 1, 1000)
+        loss_probability = float((sim_profits < 0).mean())
+
+        state_bridge.set_last_scenario(profit=profit, margin=margin, npv=profit * 3, years=3,
+                                        inflation=inflation, sales_change=sales_change,
+                                        interest_rate=interest_rate, loss_probability=loss_probability)
+        log_event(module="orchestrator", action="analyze_and_advise",
+                  inputs={"ticker": ticker_used, "scenario": "pessimistic"},
+                  output_summary=f"Forecast MAPE {mape_val:.2f}% | Scenario profit ${profit:,.0f}")
+        s.update(label="Done — see summary below", state="complete")
+
+    st.success("Analyze & Advise complete — results staged for the report generator.")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Forecast MAPE", f"{mape_val:.1f}%")
+    c2.metric("Pessimistic Profit", f"${profit:,.0f}")
+    c3.metric("Loss Probability", f"{loss_probability:.1%}")
+
+
 def page_home() -> None:
     st.subheader("Select a Module")
+
+    with st.container(border=True):
+        st.markdown("### ⚡ Analyze & Advise")
+        st.caption("Runs the best forecasting model, applies a pessimistic stress scenario, and stages the results for the report generator.")
+        if st.button("⚡ Run Analyze & Advise", type="primary"):
+            _run_analyze_and_advise()
 
     c1, c2, c3 = st.columns(3)
     with c1:

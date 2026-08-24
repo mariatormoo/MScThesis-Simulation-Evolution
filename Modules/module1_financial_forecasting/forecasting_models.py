@@ -11,7 +11,6 @@ warnings.filterwarnings("ignore")
 # Import Libraries
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from typing import Tuple, Optional
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
@@ -257,7 +256,7 @@ def forecast_xgboost(model_tuple, steps: int, history: np.ndarray):
     for i in range(steps):
         X = np.array(history_list[-max_lag:]).reshape(1, -1)
         dtest = xgb.DMatrix(X)
-        y_pred = float(booster.predict(dtest)[0]) #compatible with NumPy 2.x
+        y_pred = float(booster.predict(dtest)[0])  # FIX: float() on a shape-(1,) array breaks on NumPy 2.x
         predictions.append(y_pred)
         history_list.append(y_pred)
 
