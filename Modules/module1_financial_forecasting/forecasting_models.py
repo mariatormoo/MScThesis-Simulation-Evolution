@@ -257,7 +257,7 @@ def forecast_xgboost(model_tuple, steps: int, history: np.ndarray):
     for i in range(steps):
         X = np.array(history_list[-max_lag:]).reshape(1, -1)
         dtest = xgb.DMatrix(X)
-        y_pred = float(booster.predict(dtest))
+        y_pred = float(booster.predict(dtest)[0]) #compatible with NumPy 2.x
         predictions.append(y_pred)
         history_list.append(y_pred)
 

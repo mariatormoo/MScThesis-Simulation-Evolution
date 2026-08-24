@@ -189,7 +189,7 @@ def length_words_to_tokens(words: int) -> int:
     return int(words * 1.4)
 
 
-def _call_openai(prompt: str, api_key: Optional[str]) -> str:
+def _call_openai(prompt: str, api_key: Optional[str], length: int) -> str:
     """
     Attempt to call OpenAI using either the new or legacy SDK.
     If no API key or client is available, return a helpful local stub.
@@ -467,8 +467,9 @@ def run_genai_module():
                 for _, row in metrics_df.iterrows()
             )
 
+        combined_metrics = f"{metrics}\nStructured KPIs:\n{kpi_summary}" if kpi_summary else metrics
         prompt = TEMPLATES[doc_type].format(
-            metrics=metrics, 
+            metrics=combined_metrics, 
             horizon=horizon, 
             risk_appetite=risk_appetite,
             tone=tone,
@@ -481,7 +482,7 @@ def run_genai_module():
         with st.status("Generating report...", expanded=False) as s:
             s.update(label="Calling GPT...", state='running')
             try:
-                report = _call_openai(prompt, api_key)
+                report = _call_openai(prompt, api_key, length)
                 if api_key:
                     s.update(label="Formatting...", state='running')
                     s.update(label="Successfully Generated! (click to access report)", state='complete')
