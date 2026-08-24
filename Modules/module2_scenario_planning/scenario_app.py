@@ -108,7 +108,7 @@ def _tornado_sensitivity(base_sales: float, base_costs: float, base_interest: fl
 # Main Page with Tabs
 # =========================
 
-def run_scenario_module(capex_pct, da_pct, nwc_change):
+def run_scenario_module():
     """Run the Scenario Planning app with tabs for What-If, Monte Carlo, and Sensitivity Analysis."""
     
     # Set up Streamlit page config
@@ -156,14 +156,20 @@ def run_scenario_module(capex_pct, da_pct, nwc_change):
 
     sales, costs, interest = base_sales, base_costs, base_interest
 
+    with st.expander("💰 Free Cash Flow assumptions (advanced)", expanded=False):
+        capex_pct = st.slider("CapEx (% of Sales)", 0.0, 30.0, 8.0, step=0.5, help="Capital Expenditures as % of Sales.")
+        da_pct = st.slider("D&A (% of sales)", 0.0, 20.0, 5.0, step=0.5, help="Depreciation & Amortization as % of Sales.")
+        nwc_change_pct = st.number_input("Change in Net Working Capital (% of sales)", -10.0, 10.0, 2.0, step=0.5, help="Change in NWC for FCF calculation.")
+
     for year in range(1, years + 1):
         sales = sales * (1 + sales_change / 100)
         costs = costs * (1 + inflation / 100)
         interest = interest * (1 + interest_rate / 100)
         profit = sales - costs - interest
         #free_cf = profit
-        capex = adj_sales * (capex_pct / 100)
-        d_and_a = adj_sales * (da_pct / 100)
+        capex = sales * (capex_pct / 100)
+        d_and_a = sales * (da_pct / 100)
+        nwc_change = sales * (nwc_change_pct / 100)
         free_cf = profit + d_and_a - capex - nwc_change
         # CHECK FORMULAS FOR FCF AND NPV
         df.loc[year, ["Sales", "Costs", "Interest", "Profit", "FreeCF"]] = [sales, costs, interest, profit, free_cf]

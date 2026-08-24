@@ -189,14 +189,11 @@ def length_words_to_tokens(words: int) -> int:
     return int(words * 1.4)
 
 
-def _call_openai(prompt: str) -> str:
+def _call_openai(prompt: str, api_key: Optional[str]) -> str:
     """
     Attempt to call OpenAI using either the new or legacy SDK.
     If no API key or client is available, return a helpful local stub.
     """
-
-    mode, client = _get_openai_client()
-    api_key = _get_api_key()
 
     # Control missing API key
     if not api_key:
@@ -220,7 +217,7 @@ def _call_openai(prompt: str) -> str:
                         {"role": "user", "content": prompt},
                     ],
                     temperature=0.3, # Lower temperature for more focused responses
-                    max_tokens=min(4000, int(length_words_to_tokens(lendth))),
+                    max_tokens=min(4000, int(length_words_to_tokens(length))),
                 )
                 return response.choices[0].message.content.strip()
             
@@ -353,7 +350,7 @@ def _suggestions_reply(prompt: str, api_key: str | None, metrics: str, horizon: 
             temperature=0.5,
             messages=[
                 {"role": "system", "content": "You are a helpful product/design coach for executive finance reports. Be concise and specific."},
-                {"role": "user", "content": prompt or "Suggest 3 impactful additions for a CFO decision report."},
+                {"role": "user", "content": full_context or prompt or "Suggest 3 impactful additions for a CFO decision report."},
             ],
             max_tokens=200,
         )
