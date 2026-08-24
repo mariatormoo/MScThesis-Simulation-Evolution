@@ -227,6 +227,41 @@ def run_forecasting_module():
                 output_summary=f"Best model: {best_row['Model']} (MAPE {best_row['MAPE (%)']:.2f}%)",
             )
 
+    # ------------------------------------------------------------
+    # Probability band for the best model
+    # ------------------------------------------------------------
+    if test_days > 0 and len(test) > 0 and metrics:
+        best_model_name = metrics_df_display.iloc[0]['Model']
+        best_preds = results.get(best_model_name)
+        if best_preds is not None and len(best_preds) == len(test):
+            st.subheader("🎯 Prediction Interval — Best Model")
+            st.caption(
+                f"Best performing model on this holdout: **{best_model_name}**. "
+                "Band shown is an approximate 90% interval — bootstrapped from holdout "
+                "residuals (or Prophet's native interval), not a guarantee."
+            )
+            if best_model_name == "Prophet*" and 'forecast' in dir():
+                try:
+                    lower = forecast['yhat_lower'].tail(len(best_preds)).values
+                    upper = forecast['yhat_upper'].tail(len(best_preds)).values
+                except Exception:
+                    lower, upper = fm.bootstrap_interval(test['y'].values, best_preds, best_preds)
+            else:
+                lower, upper = fm.bootstrap_interval(test['y'].values, best_preds, best_preds)
+
+            import plotly.graph_objs as go
+            band_df = pd.DataFrame({
+                "ds": test['ds'].values, "actual": test['y'].values,
+                "forecast": best_preds, "lower_90": lower, "upper_90": upper,
+            })
+            band_fig = go.Figure()
+            band_fig.add_trace(go.Scatter(x=band_df["ds"], y=band_df["upper_90"], line=dict(width=0), showlegend=False, hoverinfo="skip"))
+            band_fig.add_trace(go.Scatter(x=band_df["ds"], y=band_df["lower_90"], line=dict(width=0), fill='tonexty',
+                                           fillcolor='rgba(99,110,250,0.2)', name="90% interval"))
+            band_fig.add_trace(go.Scatter(x=band_df["ds"], y=band_df["forecast"], mode='lines', name=f"{best_model_name} forecast"))
+            band_fig.add_trace(go.Scatter(x=band_df["ds"], y=band_df["actual"], mode='lines', name="Actual", line=dict(dash='dot')))
+            band_fig.update_layout(margin=dict(l=20, r=20, t=30, b=20))
+            st.plotly_chart(band_fig, use_container_width=True)
 
     # ----------------------------
     # Forecast Plot with Year Axis

@@ -263,8 +263,43 @@ def forecast_xgboost(model_tuple, steps: int, history: np.ndarray):
     return np.array(predictions)
 
 
+# ---------------------------------------------------------------------------
+# Probability bands (bootstrap over holdout residuals)
+# ---------------------------------------------------------------------------
+# Point forecasts alone don't tell a CFO how much to trust a number. This
+# gives an approximate prediction interval for any model that doesn't
+# already provide one natively (Prophet does, via yhat_lower/yhat_upper).
 
-# Metrics
+def bootstrap_interval(y_true_holdout: np.ndarray, y_pred_holdout: np.ndarray,
+                        point_forecast: np.ndarray, n_boot: int = 500,
+                        ci: float = 0.9, seed: int = 42) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Approximate prediction interval by bootstrapping residuals from the
+    holdout set and applying them additively to the point forecast.
+    Returns (lower_band, upper_band), same length as point_forecast.
+    An honest, lightweight approximation — not a substitute for a proper
+    probabilistic model.
+    """
+    y_true_holdout = np.asarray(y_true_holdout, dtype=float)
+    y_pred_holdout = np.asarray(y_pred_holdout, dtype=float)
+    point_forecast = np.asarray(point_forecast, dtype=float)
+
+    if len(y_true_holdout) == 0 or len(y_pred_holdout) != len(y_true_holdout):
+        # Not enough info to estimate residual spread — flat +/-5% fallback, clearly approximate.
+        spread = np.abs(point_forecast) * 0.05
+        return point_forecast - spread, point_forecast + spread
+
+    residuals = y_true_holdout - y_pred_holdout
+    rng = np.random.default_rng(seed)
+
+    boot_paths = np.empty((n_boot, len(point_forecast)))
+    for b in range(n_boot):
+        sampled_resid = rng.choice(residuals, size=len(point_forecast), replace=True)
+        boot_paths[b] = point_forecast + sampled_resid
+
+    lower_q = (1 - ci) / 2 * 100
+    upper_q = (1 + ci) / 2 * 100
+    return np.percentile(boot_paths, lower_q, axis=0), np.percentile(boot_paths, upper_q, axis=0)
 
 def mape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """

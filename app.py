@@ -162,9 +162,8 @@ with st.sidebar:
 def _safe_run(module_name: str, runner: callable) -> None:
     """Run a module with friendly error UI."""
     try:
-        with st.status(f"Loading {module_name}…", expanded=False) as s:
-            runner()
-            s.update(label=f"{module_name} ready", state="complete")
+        runner()
+
     except Exception as e:  # noqa: BLE001 (we want to surface everything nicely)
         st.error(f"{module_name} encountered an error.")
         st.exception(e)
