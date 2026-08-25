@@ -270,37 +270,75 @@ def forecast_xgboost(model_tuple, steps: int, history: np.ndarray):
 # gives an approximate prediction interval for any model that doesn't
 # already provide one natively (Prophet does, via yhat_lower/yhat_upper).
 
-def bootstrap_interval(y_true_holdout: np.ndarray, y_pred_holdout: np.ndarray,
-                        point_forecast: np.ndarray, n_boot: int = 500,
-                        ci: float = 0.9, seed: int = 42) -> Tuple[np.ndarray, np.ndarray]:
+def bootstrap_interval(
+    y_true_holdout: np.ndarray,
+    y_pred_holdout: np.ndarray,
+    point_forecast: np.ndarray,
+    n_boot: int = 500,
+    ci: float = 0.9,
+    seed: int = 42
+) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Approximate prediction interval by bootstrapping residuals from the
-    holdout set and applying them additively to the point forecast.
-    Returns (lower_band, upper_band), same length as point_forecast.
-    An honest, lightweight approximation — not a substitute for a proper
-    probabilistic model.
-    """
-    y_true_holdout = np.asarray(y_true_holdout, dtype=float).ravel()  # FIX: force 1D — some models can
-    y_pred_holdout = np.asarray(y_pred_holdout, dtype=float).ravel()  # return column-vector shaped (n,1)
-    point_forecast = np.asarray(point_forecast, dtype=float).ravel()  # predictions, which broke via
-                                                                        # NumPy broadcasting into an (n,n) matrix.
+    Approximate prediction interval by bootstrapping residuals
+    from the holdout set and applying them to the future forecast.
 
-    if len(y_true_holdout) == 0 or len(y_pred_holdout) != len(y_true_holdout):
-        # Not enough info to estimate residual spread — flat +/-5% fallback, clearly approximate.
+    Returns:
+        lower_band, upper_band
+    """
+
+    y_true_holdout = np.asarray(y_true_holdout, dtype=float).ravel()
+    y_pred_holdout = np.asarray(y_pred_holdout, dtype=float).ravel()
+    point_forecast = np.asarray(point_forecast, dtype=float).ravel()
+
+    # Calculate historical holdout residuals
+    if (
+        len(y_true_holdout) == 0
+        or len(y_pred_holdout) != len(y_true_holdout)
+    ):
+        # Fallback: approximate ±5% interval
         spread = np.abs(point_forecast) * 0.05
-        return point_forecast - spread, point_forecast + spread
+        return (
+            point_forecast - spread,
+            point_forecast + spread
+        )
 
     residuals = y_true_holdout - y_pred_holdout
+
     rng = np.random.default_rng(seed)
 
-    boot_paths = np.empty((n_boot, len(point_forecast)))
+    # Bootstrap residuals around the FUTURE forecast
+    boot_paths = np.empty(
+        (n_boot, len(point_forecast))
+    )
+
     for b in range(n_boot):
-        sampled_resid = rng.choice(residuals, size=len(point_forecast), replace=True)
+        sampled_resid = rng.choice(
+            residuals,
+            size=len(point_forecast),
+            replace=True
+        )
+
         boot_paths[b] = point_forecast + sampled_resid
 
     lower_q = (1 - ci) / 2 * 100
     upper_q = (1 + ci) / 2 * 100
-    return np.percentile(boot_paths, lower_q, axis=0), np.percentile(boot_paths, upper_q, axis=0)
+
+    lower = np.percentile(
+        boot_paths,
+        lower_q,
+        axis=0
+    )
+
+    upper = np.percentile(
+        boot_paths,
+        upper_q,
+        axis=0
+    )
+
+    return (
+        np.asarray(lower).ravel(),
+        np.asarray(upper).ravel()
+    )
 
 def mape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """

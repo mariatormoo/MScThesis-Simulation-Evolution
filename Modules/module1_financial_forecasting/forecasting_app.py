@@ -238,85 +238,272 @@ def run_forecasting_module():
             )
 
     # ------------------------------------------------------------
-    # Probability band for the best model
+    # Prediction interval for the best model
     # ------------------------------------------------------------
+
     if test_days > 0 and len(test) > 0 and metrics:
+
+        # Best model according to holdout MAPE
         best_model_name = metrics_df_display.iloc[0]['Model']
-        best_preds = results.get(best_model_name)
-        if best_preds is not None and len(best_preds) == len(test):
-            st.subheader("🎯 Prediction Interval — Best Model")
-            st.caption(
-                f"Best performing model on this holdout: **{best_model_name}**. "
-                "Band shown is an approximate 90% interval — bootstrapped from holdout "
-                "residuals (or Prophet's native interval), not a guarantee."
-            )
-            if best_model_name == "Prophet*" and 'forecast' in dir():
-                try:
-                    lower = forecast['yhat_lower'].tail(len(best_preds)).values
-                    upper = forecast['yhat_upper'].tail(len(best_preds)).values
-                except Exception:
-                    lower, upper = fm.bootstrap_interval(
-                        test['y'].values, 
-                        best_preds, 
-                        best_preds
+
+        # --------------------------------------------------------
+        # Get the fitted model and generate a FUTURE forecast
+        # --------------------------------------------------------
+
+        future_steps = horizon_days
+
+        future_forecast = None
+
+        try:
+
+            if best_model_name == "ARIMA(1,1,1)":
+
+                arima_model = fm.fit_arima(
+                    df,
+                    order=(1, 1, 1)
+                )
+
+                future_forecast = fm.forecast_arima(
+                    arima_model,
+                    steps=future_steps
+                )
+
+            elif best_model_name == "Holt-Winters":
+
+                seasonal = (
+                    None
+                    if seasonal_periods == 0
+                    else "add"
+                )
+
+                hw_model = fm.fit_holtwinters(
+                    df,
+                    seasonal=seasonal,
+                    seasonal_periods=(
+                        seasonal_periods or None
                     )
-            else:
-                lower, upper = fm.bootstrap_interval(
-                    test['y'].values, 
-                    best_preds, 
-                    best_preds
                 )
 
-            # ------------------------------------------------------------
-            # Normalize prediction interval data before creating DataFrame
-            # ------------------------------------------------------------
+                future_forecast = fm.forecast_holtwinters(
+                    hw_model,
+                    steps=future_steps
+                )
 
-            ds_values = np.asarray(test["ds"]).reshape(-1)
-            actual_values = np.asarray(test["y"]).reshape(-1)
-            forecast_values = np.asarray(best_preds).reshape(-1)
-            lower_values = np.asarray(lower).reshape(-1)
-            upper_values = np.asarray(upper).reshape(-1)
+            elif best_model_name == "CFO Manual":
 
-            # Make sure all arrays have the same length
-            n = len(test)
+                if cfo_mode == "Monthly Growth Rate (%)":
 
-            if not (
-                len(ds_values) == n
-                and len(actual_values) == n
-                and len(forecast_values) == n
-                and len(lower_values) == n
-                and len(upper_values) == n
+                    future_forecast = fm.manual_cfo_growth_rate(
+                        df,
+                        future_steps,
+                        monthly_growth_pct=float(cfo_growth)
+                    )
+
+                else:
+
+                    future_forecast = fm.manual_cfo_naive_last_value(
+                        df,
+                        future_steps
+                    )
+
+            elif best_model_name == "Prophet*":
+
+                prophet_train = df.copy()
+
+                prophet_train["ds"] = pd.to_datetime(
+                    prophet_train["ds"],
+                    errors="coerce"
+                )
+
+                prophet_train["y"] = pd.to_numeric(
+                    prophet_train["y"],
+                    errors="coerce"
+                )
+
+                prophet_train = prophet_train.dropna(
+                    subset=["ds", "y"]
+                )
+
+                prophet_train = prophet_train.sort_values(
+                    "ds"
+                ).reset_index(drop=True)
+
+                prophet_model = fm.fit_prophet(
+                    prophet_train
+                )
+
+                prophet_forecast = fm.forecast_prophet(
+                    prophet_model,
+                    future_steps,
+                    include_history=False
+                )
+
+                future_forecast = (
+                    prophet_forecast["yhat"]
+                    .tail(future_steps)
+                    .to_numpy()
+                )
+
+            elif best_model_name == "XGBoost*":
+
+                xgb_model = fm.fit_xgboost(
+                    df,
+                    max_lag=7
+                )
+
+                history = df["y"].to_numpy().reshape(-1, 1)
+
+                future_forecast = fm.forecast_xgboost(
+                    xgb_model,
+                    future_steps,
+                    history
+                )
+
+        except Exception as e:
+
+            st.warning(
+                f"Could not generate future forecast "
+                f"for {best_model_name}: {e}"
+            )
+            future_forecast = None
+
+        # --------------------------------------------------------
+        # Build future prediction interval
+        # --------------------------------------------------------
+
+        if future_forecast is not None:
+
+            future_forecast = np.asarray(
+                future_forecast,
+                dtype=float
+            ).ravel()
+
+            # Generate future dates
+            future_dates = pd.date_range(
+                start=df["ds"].iloc[-1] + pd.Timedelta(days=1),
+                periods=len(future_forecast),
+                freq="D"
+            )
+
+            # Get holdout predictions from the selected model
+            holdout_preds = results.get(best_model_name)
+
+            if (
+                holdout_preds is not None
+                and len(holdout_preds) == len(test)
             ):
-                st.error(
-                    f"Prediction interval error: different array lengths. "
-                    f"test={n}, "
-                    f"ds={len(ds_values)}, "
-                    f"actual={len(actual_values)}, "
-                    f"forecast={len(forecast_values)}, "
-                    f"lower={len(lower_values)}, "
-                    f"upper={len(upper_values)}"
+
+                holdout_preds = np.asarray(
+                    holdout_preds,
+                    dtype=float
+                ).ravel()
+
+                # Bootstrap the HOLDOUT residuals around
+                # the FUTURE forecast
+                lower, upper = fm.bootstrap_interval(
+                    test["y"].to_numpy(),
+                    holdout_preds,
+                    future_forecast
                 )
-                st.stop()
 
-            import plotly.graph_objs as go
+                lower = np.asarray(
+                    lower,
+                    dtype=float
+                ).ravel()
 
-            band_df = pd.DataFrame({
-                "ds": ds_values,
-                "actual": actual_values,
-                "forecast": forecast_values,
-                "lower_90": lower_values,
-                "upper_90": upper_values,
-            })
+                upper = np.asarray(
+                    upper,
+                    dtype=float
+                ).ravel()
 
+                # ------------------------------------------------
+                # Create dataframe for future prediction interval
+                # ------------------------------------------------
 
-            band_fig = go.Figure()
-            band_fig.add_trace(go.Scatter(x=band_df["ds"], y=band_df["upper_90"], line=dict(width=0), showlegend=False, hoverinfo="skip"))
-            band_fig.add_trace(go.Scatter(x=band_df["ds"], y=band_df["lower_90"], line=dict(width=0), fill='tonexty',
-                                           fillcolor='rgba(99,110,250,0.2)', name="90% interval"))
-            band_fig.add_trace(go.Scatter(x=band_df["ds"], y=band_df["forecast"], mode='lines', name=f"{best_model_name} forecast"))
-            band_fig.add_trace(go.Scatter(x=band_df["ds"], y=band_df["actual"], mode='lines', name="Actual", line=dict(dash='dot')))
-            band_fig.update_layout(margin=dict(l=20, r=20, t=30, b=20))
-            st.plotly_chart(band_fig, use_container_width=True)
+                band_df = pd.DataFrame({
+                    "ds": future_dates,
+                    "forecast": future_forecast,
+                    "lower_90": lower,
+                    "upper_90": upper
+                })
+
+                # ------------------------------------------------
+                # Plot
+                # ------------------------------------------------
+
+                import plotly.graph_objs as go
+
+                st.subheader(
+                    "🎯 Prediction Interval — Best Model"
+                )
+
+                st.caption(
+                    f"Best performing model on this holdout: "
+                    f"**{best_model_name}**. "
+                    "The forecast shown extends into the future, "
+                    "with an approximate 90% prediction interval "
+                    "estimated by bootstrapping holdout residuals."
+                )
+
+                band_fig = go.Figure()
+
+                # Upper interval
+                band_fig.add_trace(
+                    go.Scatter(
+                        x=band_df["ds"],
+                        y=band_df["upper_90"],
+                        line=dict(width=0),
+                        showlegend=False,
+                        hoverinfo="skip"
+                    )
+                )
+
+                # Lower interval + fill
+                band_fig.add_trace(
+                    go.Scatter(
+                        x=band_df["ds"],
+                        y=band_df["lower_90"],
+                        line=dict(width=0),
+                        fill="tonexty",
+                        fillcolor="rgba(99,110,250,0.2)",
+                        name="90% interval"
+                    )
+                )
+
+                # Future forecast
+                band_fig.add_trace(
+                    go.Scatter(
+                        x=band_df["ds"],
+                        y=band_df["forecast"],
+                        mode="lines",
+                        name=f"{best_model_name} forecast"
+                    )
+                )
+
+                # Historical actual values
+                band_fig.add_trace(
+                    go.Scatter(
+                        x=df["ds"].tail(180),
+                        y=df["y"].tail(180),
+                        mode="lines",
+                        name="Actual",
+                        line=dict(dash="dot")
+                    )
+                )
+
+                band_fig.update_layout(
+                    margin=dict(
+                        l=20,
+                        r=20,
+                        t=30,
+                        b=20
+                    )
+                )
+
+                st.plotly_chart(
+                    band_fig,
+                    use_container_width=True
+                )
 
     # ----------------------------
     # Forecast Plot with Year Axis
